@@ -18,6 +18,7 @@ class Policy(nn.Module):
                 self.layers.append(nn.Linear(hidden_layers[i-1], hidden_layers[i]))
             self.layers.append(nn.ReLU())
         self.layers.append(nn.Linear(hidden_layers[-1], output_dim))
+        print(self.layers)
         self.model = nn.Sequential(*self.layers)
         # reset policy, needs to be done before each new episode
         self.onpolicy_reset()
@@ -121,4 +122,4 @@ if __name__ == '__main__':
     MAX_TIMESTEP = 200
     REW_THRWSHOLD = 200
 
-    main('CartPole-v0', [64], 0.9, 0.99)
+    main('CartPole-v0', [64], 0.01, 0.99)
