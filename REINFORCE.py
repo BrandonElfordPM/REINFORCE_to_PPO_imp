@@ -21,12 +21,12 @@ class Policy(nn.Module):
         print(self.layers)
         self.model = nn.Sequential(*self.layers)
         # reset policy, needs to be done before each new episode
-        self.onpolicy_reset()
+        self.reset()
         # nn.Module, sets mode to training (vs validation, where no exploration)
         self.train() 
 
 
-    def onpolicy_reset(self):
+    def reset(self):
         """
             resets the log probability (used for calculating the loss) and
             the reward history (used for computing the discounted reward at 
@@ -114,12 +114,12 @@ def main(env_name, hidden_layers, learning_rate, discount_rate):
             print("SOLVED!")
             break
         # reseting policy for next episode
-        pi.onpolicy_reset()
+        pi.reset()
     
 
 if __name__ == '__main__':
-    EPISODE_NUM = 1000
+    EPISODE_NUM = 500
     MAX_TIMESTEP = 200
-    REW_THRWSHOLD = 200
+    REW_THRWSHOLD = 195
 
-    main('CartPole-v0', [64], 0.01, 0.99)
+    main('CartPole-v0', [64], 0.003, 0.99)
