@@ -7,7 +7,7 @@ The REINFORCE algorithm is one of the earliest reinforcement learning algorithms
 Our implementation is done in PyTorch and has been proven to work on basic gym environments, like CartPole. 
 
 <p align="center">
-  <img src="CartPole-v0_reinforce.gif" width="400" height="400" />
+  <img src="images/CartPole-v0_reinforce.gif" width="400" height="400" /> <img src="images/Acrobot-v1_reinforce.gif" width="400" height="400" />
 </p>
 
 ## A2C
