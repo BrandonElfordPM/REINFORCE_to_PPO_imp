@@ -152,17 +152,19 @@ def valid(pi, env_name):
         frames.append(env.render(mode="rgb_array"))
         if done:
             break
-    file_name = env_name+'_reinforce.gif'
+    file_name = env_name+'_REINFORCE.gif'
     save_frames_as_gif(frames, filename=file_name)
 
 ###
 
 if __name__ == '__main__':
-    EPISODE_NUM = 5000
+    EPISODE_NUM = 10000
     MAX_TIMESTEP = 1000
     REW_THRWSHOLD = 0.9 * MAX_TIMESTEP
 
-    env_name = 'CartPole-v0'
+    env_name = 'CartPole-v1' # solved
+    # env_name = 'Acrobot-v1'  # solved
+    # env_name = 'MountainCar-v0'
     hidden_layers = [32]
     learning_rate = 0.003
     discount_rate = 0.99
