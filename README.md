@@ -9,3 +9,9 @@ Our implementation is done in PyTorch and has been proven to work on basic gym e
 <p align="center">
   <img src="CartPole-v0_reinforce.gif" width="400" height="400" />
 </p>
+
+## A2C
+This algorithm does not seem to be learning at the moment. Further debugging is necessary. 
+
+## PPO
+This algorithm is still being implemented.
