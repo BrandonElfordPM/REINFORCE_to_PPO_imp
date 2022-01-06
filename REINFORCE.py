@@ -1,7 +1,12 @@
 import numpy as np
+from matplotlib import animation
+import matplotlib.pyplot as plt
+
 import gym
+
 import torch 
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
 
@@ -18,13 +23,12 @@ class Policy(nn.Module):
                 self.layers.append(nn.Linear(hidden_layers[i-1], hidden_layers[i]))
             self.layers.append(nn.ReLU())
         self.layers.append(nn.Linear(hidden_layers[-1], output_dim))
-        print(self.layers)
         self.model = nn.Sequential(*self.layers)
+        print(self.model)
         # reset policy, needs to be done before each new episode
         self.reset()
         # nn.Module, sets mode to training (vs validation, where no exploration)
         self.train() 
-
 
     def reset(self):
         """
@@ -35,39 +39,42 @@ class Policy(nn.Module):
         self.log_prob = []
         self.rewards = []
 
-
     def forward(self, x):
         """
             completes one forward pass of the network with the observation state x.
         """
-        return self.model(x)
-
+        # forward propogation
+        x = self.model(x)
+        # applying softmax activation to output because the env is discrete
+        return F.softmax(x, dim=1)
 
     def act(self, state):
         """
-            computes an action from the current policy, given the current state.
+            returns an action from the probability distribution, 
+            also appends the log probability to the model.
 
-            :return: sampled action
+            :return: action
         """
         # map state to tensor
-        x = torch.from_numpy(state.astype(np.float32))
-        # a single forward pass
-        frd_pass = self.forward(x)
-        # using Categorical distribution, we compute the prob. dist.
-        pd = Categorical(logits=frd_pass)
-        # sampling the prob. dist. gives us an action
-        action = pd.sample()
-        # apply the log prob of the sampled action, used for loss
-        self.log_prob.append(pd.log_prob(action))
+        state = torch.from_numpy(state).float().unsqueeze(0)
+        # forward pass returns action probabilities
+        probs = self(state)
+        # initialize the action distribution
+        dist = Categorical(probs)
+        # sample the distribution to return an action
+        action = dist.sample()
+        # uodate the log_prob list
+        self.log_prob.append(dist.log_prob(action))
         return action.item()
 
+###
 
-def main(env_name, hidden_layers, learning_rate, discount_rate):
+def REINFORCE(env, hidden_layers, learning_rate, discount_rate):
     """
         defines the environment, initializes the policy, simulates trajectories 
         of each episode, computes the loss and updates the policy.
     """
-    env = gym.make(env_name)
+    epi_rewards = []
     # if the env space is discrete, we need to use 'n' instead because 'shape returns empty
     try:
         input_dim = env.observation_space.shape[0]
@@ -89,7 +96,7 @@ def main(env_name, hidden_layers, learning_rate, discount_rate):
             action = pi.act(state)
             state, reward, done, _ = env.step(action)
             pi.rewards.append(reward)
-            env.render()
+            # env.render()
             if done:
                 break
         # compute discounted rewards
@@ -107,19 +114,62 @@ def main(env_name, hidden_layers, learning_rate, discount_rate):
         opt.zero_grad()
         loss.backward()
         opt.step()
+        # recording episode rewards
+        epi_rewards.append(sum(pi.rewards))
         # print out episode stats
-        print("\nEpisode: {}\nLoss:    {}\nTotal Reward: {}".format(epi, loss, sum(pi.rewards)))
+        avg_epi_rew = np.mean(epi_rewards[-10:])
+        if epi % 100 == 0:
+            print("\nEpisode: {}\nLoss:    {}\nAvg Epi Rew: {}".format(epi, loss, avg_epi_rew))
         # checking if solved
-        if sum(pi.rewards) > REW_THRWSHOLD:
-            print("SOLVED!")
+        if avg_epi_rew > REW_THRWSHOLD:
+            print("SOLVED")
             break
         # reseting policy for next episode
         pi.reset()
+    return pi
     
+###
+
+def save_frames_as_gif(frames, path='./', filename='gym_animation.gif'):
+    #Mess with this to change frame size
+    plt.figure(figsize=(frames[0].shape[1] / 72.0, frames[0].shape[0] / 72.0), dpi=72)
+    patch = plt.imshow(frames[0])
+    plt.axis('off')
+    def animate(i):
+        patch.set_data(frames[i])
+    anim = animation.FuncAnimation(plt.gcf(), animate, frames = len(frames), interval=50)
+    anim.save(path + filename, writer='pillow', fps=60)
+
+def valid(pi, env_name):
+    env = gym.make(env_name)
+    frames = []
+    pi.eval()
+    state = env.reset()
+    while True:
+        action = pi.act(state)
+        state, rew, done, _ = env.step(action)
+        env.render()
+        frames.append(env.render(mode="rgb_array"))
+        if done:
+            break
+    file_name = env_name+'_reinforce.gif'
+    save_frames_as_gif(frames, filename=file_name)
+
+###
 
 if __name__ == '__main__':
-    EPISODE_NUM = 500
-    MAX_TIMESTEP = 200
-    REW_THRWSHOLD = 195
+    EPISODE_NUM = 5000
+    MAX_TIMESTEP = 1000
+    REW_THRWSHOLD = 0.9 * MAX_TIMESTEP
 
-    main('CartPole-v0', [64], 0.003, 0.99)
+    env_name = 'CartPole-v0'
+    hidden_layers = [32]
+    learning_rate = 0.003
+    discount_rate = 0.99
+
+    env = gym.make(env_name)
+    env._max_episode_steps = MAX_TIMESTEP
+
+    pi = REINFORCE(env, hidden_layers, learning_rate, discount_rate)
+
+    valid(pi, env_name)
