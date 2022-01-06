@@ -1,5 +1,7 @@
 # REINFORCE_to_PPO_imp
-My implementations of REINFORCE, SARSA, PPO algorithms.
+My implementations of REINFORCE, A2C, PPO algorithms.
 
-Notes on PPO
-My notes on PPO can be found here: https://potentialmotors.atlassian.net/wiki/spaces/~849382107/pages/1323073569/Proximal+Policy+Optimization
+## REINFORCE
+The REINFORCE algorithm is one of the earliest reinforcement learning algorithms. It uses gradient descent, the modern day algorithms are essentially descendants. We started here to understand the basics of gradient descent learning, to then iterate on to implement the other two. 
+
+Our implementation is done in PyTorch and has been proven to work on basic gym environments, like CartPole. <img src="CartPole-v0_reinforce.gif.gif" width="40" height="40" />
