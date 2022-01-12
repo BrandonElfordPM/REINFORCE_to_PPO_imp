@@ -18,7 +18,7 @@ class Policy(nn.Module):
                  input_dim: int=1, 
                  hidden_layers: list= [8], 
                  output_dim: int=1):
-        super(Policy, self).__init__()
+        super().__init__()
         # construct neural net
         self.layers = []
         for i in range(len(hidden_layers)):
@@ -146,7 +146,8 @@ class REINFORCE:
                     num_episodes: int = 1e3,
                     max_timestep: int = 5e2,
                     rew_threshold: int = 5e2 // (9/10),
-                    save_model: bool = False
+                    save_model: bool = False,
+                    model_name: str = 'model_ckpt'
                     ):
         # for each episode...
         for epi in range(num_episodes):
@@ -181,7 +182,7 @@ class REINFORCE:
         file_name = self.env.unwrapped.spec.id+'-'+model_name
         torch.save({'model_state_dict': self.policy.model.state_dict(), 
                     'optim_state_dict': self.optimizer.state_dict()},
-                   file_name)
+                   model_name)
 
     def load(self,
              file_name: str = 'module_ckpt',
