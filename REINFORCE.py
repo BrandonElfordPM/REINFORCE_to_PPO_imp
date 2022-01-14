@@ -81,7 +81,7 @@ class REINFORCE:
                  policy_kwargs: dict = {}, 
                  optimizer: torch.optim = None, 
                  hyper_params: dict = {},
-                 model_name: str = None,
+                 load_model_name: str = None,
                  ):
         self.env = env
         # if the env space is discrete, we need to use 'n' instead because 'shape returns empty
@@ -111,8 +111,8 @@ class REINFORCE:
         else:
             self.optimizer = optimizer
         # load weights
-        if model_name:
-            self.load(file_name=model_name)
+        if load_model_name:
+            self.load(file_name=load_model_name)
 
         self.episode_rews = []
 
@@ -120,7 +120,7 @@ class REINFORCE:
                  max_timestep: int = 5e2):
         state = self.env.reset()
         # sample a trajectory
-        for t in range(max_timestep):
+        for t in range(int(max_timestep)):
             action = self.policy.act(state)
             state, reward, done, _ = self.env.step(action) # [action] for Pendulum, action otherwise
             self.policy.rewards.append(reward)
@@ -145,12 +145,12 @@ class REINFORCE:
     def do_n_epochs(self, 
                     num_episodes: int = 1e3,
                     max_timestep: int = 5e2,
-                    rew_threshold: int = 5e2 // (9/10),
+                    rew_threshold: int = 5e2 // (10/9),
                     save_model: bool = False,
-                    model_name: str = 'model_ckpt'
+                    save_model_name: str = 'model_ckpt'
                     ):
         # for each episode...
-        for epi in range(num_episodes):
+        for epi in range(int(num_episodes)):
             avg_epi_rew, loss = self.do_epoch(max_timestep)
             if epi % 100 == 0:
                 print("\nEpisode: {}\nLoss:    {}\nAvg Epi Rew: {}".format(epi, loss, avg_epi_rew))
@@ -162,7 +162,7 @@ class REINFORCE:
             self.policy.reset()
         if save_model:
             print('\nSaving...\n')
-            self.save(model_name)
+            self.save(save_model_name)
 
     def compute_cumulative_rewards(self):
         # compute cumulative rewards
@@ -176,16 +176,15 @@ class REINFORCE:
         return rewards
 
     def save(self,
-             env_name: str,
-             model_name: str='model_ckpt',
+             model_name: str='model_ckpts/model_reinforce',
              ):
-        file_name = self.env.unwrapped.spec.id+'-'+model_name
-        torch.save({'model_state_dict': self.policy.model.state_dict(), 
+        file_name = model_name+'_'+self.env.unwrapped.spec.id
+        torch.save({'model_state_dict': self.policy.state_dict(), 
                     'optim_state_dict': self.optimizer.state_dict()},
-                   model_name)
+                   file_name)
 
     def load(self,
-             file_name: str = 'module_ckpt',
+             file_name: str = 'module_ckpts/model_reinforce',
              ):
         state_dict = torch.load(file_name)
         self.policy.model.load_state_dict(state_dict['model_state_dict'])
@@ -205,34 +204,57 @@ def save_frames_as_gif(frames, path='./', filename='gym_animation.gif'):
 
 ###
 
-def train(env_name):
-    num_episodes = 10000
-    max_timestep = 1000
-    rew_threshold = 0.9 * max_timestep
+def train(env_name,
+          policy: nn.Module = None,
+          policy_kwargs: dict = {}, 
+          optimizer: torch.optim = None, 
+          hyper_params: dict = {},
+          load_model_name: str = None,
+          num_episodes: int = 1000,
+          max_timestep: int = 5e2,
+          rew_threshold: int = 5e2 // (10/9),
+          save_model: bool = False,
+          save_model_name: str = 'model_ckpt',
+          ):
     # create environment
     env = gym.make(env_name)
-    env._max_episode_steps = max_timestep
-    # algo
-    hyper_params = {'hidden_layers': [16,16]}
-    algo = REINFORCE(env, hyper_params=hyper_params)
-    algo.do_n_epochs(num_episodes=num_episodes, 
-                     max_timestep=max_timestep, 
-                     rew_threshold=rew_threshold
-                     )
-    return algo
+    if max_timestep:
+        env._max_episode_steps = max_timestep 
+        rew_threshold = rew_threshold if rew_threshold else 0.9 * max_timestep 
+    # initialize agent
+    agent = REINFORCE(env, 
+                      policy=policy,
+                      policy_kwargs=policy_kwargs, 
+                      optimizer=optimizer, 
+                      hyper_params=hyper_params,
+                      load_model_name=load_model_name)
+    # train agent
+    agent.do_n_epochs(num_episodes=num_episodes, 
+                      max_timestep=max_timestep, 
+                      rew_threshold=rew_threshold,
+                      save_model=save_model,
+                      save_model_name=save_model_name,
+                      )
+    return agent
 
-def valid(algo):
-    policy = algo.policy
+def valid(agent: REINFORCE,
+          save_gif: bool = True,
+          ):
+    # frames if saving a gif of validation
+    if save_gif:
+        frames = []
+    # set policy and env from agent
+    policy = agent.policy
     policy.eval()
-    env = algo.env
-    frames = []
-    policy.eval()
+    env = agent.env
     state = env.reset()
+    # run until done
     while True:
         action = policy.act(state)
         state, rew, done, _ = env.step(action)
         env.render()
-        frames.append(env.render(mode="rgb_array"))
+        if save_gif:
+            frames.append(env.render(mode="rgb_array"))
         if done:
             break
     file_name = env.unwrapped.spec.id+'_REINFORCE.gif'
@@ -243,7 +265,10 @@ def valid(algo):
 if __name__ == '__main__':
     env_name = 'CartPole-v1' # solved
     # env_name = 'Acrobot-v1'  # solved
+    hyper_params = {'hidden_layers': [16,16]}
     
-    algo = train(env_name)
+    agent = train(env_name, 
+                  hyper_params=hyper_params,
+                  )
 
-    valid(algo)
+    valid(agent)
