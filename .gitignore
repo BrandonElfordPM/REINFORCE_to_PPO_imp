@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# VSCode
+.vscode/
+
+# WandB
+wandb/
+
+# Model checkpoints
+model_ckpts/
