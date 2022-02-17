@@ -147,7 +147,7 @@ class REINFORCE:
                     max_timestep: int = 5e2,
                     rew_threshold: int = 5e2 // (10/9),
                     save_model: bool = False,
-                    save_model_name: str = 'model_ckpt'
+                    save_model_name: str = 'model_ckpt',
                     ):
         # for each episode...
         for epi in range(int(num_episodes)):
@@ -211,7 +211,7 @@ def train(env_name,
           hyper_params: dict = {},
           load_model_name: str = None,
           num_episodes: int = 1000,
-          max_timestep: int = 5e2,
+          max_timestep: int = None,
           rew_threshold: int = 5e2 // (10/9),
           save_model: bool = False,
           save_model_name: str = 'model_ckpt',
