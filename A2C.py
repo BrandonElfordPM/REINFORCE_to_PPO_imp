@@ -32,48 +32,59 @@ class ActorCriticPolicy(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         # defining pf and vf hidden layers
-        if hidden_layers is not None:
-            pf_arch = hidden_layers["policy"]
-            vf_arch = hidden_layers["value"]
-        else:
-            pf_arch = [4]
-            vf_arch = [4]
+        # if hidden_layers is not None:
+        #     pf_arch = hidden_layers["policy"]
+        #     vf_arch = hidden_layers["value"]
+        # else:
+        #     pf_arch = [4]
+        #     vf_arch = [4]
         # building policy function
-        pf_layers = self.compile_layers(input_dim, 
-                                        output_dim, 
-                                        pf_arch)
-        if continuous_actions:
-            pf_layers['af'] = nn.Tanh()
-        else:
-            pf_layers['af'] = nn.Softmax(dim=-1)
+        pf_layers = [nn.Linear(input_dim, 64), 
+                     nn.Tanh(),
+                     nn.Linear(64,32), 
+                     nn.Tanh(),
+                     nn.Linear(32, output_dim),
+                     nn.Softmax(dim=-1),
+                     ]
+        # if continuous_actions:
+        #     pf_layers['af'] = nn.Tanh()
+        # else:
+        #     pf_layers['af'] = nn.Softmax(dim=-1)
         # building value function
-        vf_layers = self.compile_layers(input_dim, 
-                                        1, 
-                                        vf_arch)
+        vf_layers = [nn.Linear(input_dim, 64), 
+                     nn.ReLU(), 
+                     nn.Linear(64, 32), 
+                     nn.ReLU(), 
+                     nn.Linear(32,1), 
+                     ]
         # defining actor and critic
-        self.actor  = nn.ModuleDict(pf_layers)
-        self.critic = nn.ModuleDict(vf_layers)
+        self.actor  = nn.ModuleList(pf_layers)
+        self.critic = nn.ModuleList(vf_layers)
         # setting device
         self.device = device
 
-    def compile_layers(self, 
-                       input_dim: int = 1, 
-                       output_dim: int = 1, 
-                       arch: list = []
-                       ):
-        """
-            given a list of layers, this builds the full policy (with activation 
-            functions between layers)
-        """
-        net_len = len(arch)
-        layers = OrderedDict()
-        prev_size = input_dim
-        for idx in range(net_len):
-            layers['bn'+str(idx)]  = nn.InstanceNorm1d(prev_size)
-            layers['lin'+str(idx)] = nn.Linear(prev_size, arch[idx])
-            prev_size = arch[idx]
-        layers['out'] = nn.Linear(arch[-1], output_dim)
-        return layers
+    # def compile_layers(self, 
+    #                    input_dim: int = 1, 
+    #                    output_dim: int = 1, 
+    #                    arch: list = [],
+    #                    activation: nn.Module = nn.ReLU,
+    #                    ):
+    #     """
+    #         given a list of layers, this builds the full policy (with activation 
+    #         functions between layers)
+    #     """
+    #     net_len = len(arch)
+    #     layers = OrderedDict()
+    #     prev_size = input_dim
+    #     layers['bn'] = nn.InstanceNorm1d(prev_size)
+    #     for idx in range(net_len):
+    #         layers['af'+str(idx)]  = activation()
+    #         layers['lin'+str(idx)] = nn.Linear(prev_size, arch[idx])
+    #         prev_size = arch[idx]
+    #     layers['out'] = nn.Linear(arch[-1], output_dim)
+    #     if activation==nn.Tanh:
+    #         layers['out_af'] = nn.Softmax()
+    #     return layers
 
     def reset(self):
         """
@@ -92,11 +103,11 @@ class ActorCriticPolicy(nn.Module):
         """
         # print("Orig Tensor X: {}".format(X))
         X_act = X
-        for key,layer in self.actor.items():
+        for layer in self.actor:
             # print("X_act ({}): {}".format(key,X_act))
             X_act = layer(X_act)
         X_cri = X
-        for key,layer in self.critic.items():
+        for layer in self.critic:
             # print("X_cri ({}): {}".format(key,X_cri))
             X_cri = layer(X_cri)
         # print()
@@ -154,7 +165,8 @@ class A2C:
                  env: gym.Env, 
                  policy: nn.Module = None, 
                  policy_kwargs: dict = {}, 
-                 optimizer: torch.optim = None, 
+                 actor_optimizer: torch.optim = None, 
+                 critic_optimizer: torch.optim = None,
                  hyper_params: dict = {},
                  lr_sched: torch.optim.lr_scheduler = None,
                  batch_size: int = 32,
@@ -203,10 +215,11 @@ class A2C:
                                             )
         self.old_policy.load_state_dict(self.policy.state_dict())
         # Optimizer
-        self.optimizer = optimizer if optimizer is not None else Adam(self.policy.parameters(), lr=self._lr, eps=self._epsilon)
+        self.actor_optimizer  = actor_optimizer  if actor_optimizer  is not None else Adam(self.policy.actor.parameters(),  lr=self._lr, eps=self._epsilon)
+        self.critic_optimizer = critic_optimizer if critic_optimizer is not None else Adam(self.policy.critic.parameters(), lr=self._lr, eps=self._epsilon)
         # lr schedule
-        if lr_sched:
-            self.lr_sched = lr_sched(self.optimizer, max_lr=0.1, epochs=num_epochs, steps_per_epoch=env._max_episode_steps)
+        #if lr_sched:
+        #    self.lr_sched = lr_sched(self.actor_optimizer, max_lr=0.1, epochs=num_epochs, steps_per_epoch=env._max_episode_steps)
         # RolloutBuffer
         self.rollout = RolloutBuffer()
 
@@ -217,22 +230,37 @@ class A2C:
         # compute advantages
         values, log_probs, entropy = self.policy.eval(obs, acts)
         advantages = rews - values.squeeze() 
-        # compute losses
+        # critic loss
         critic_loss = advantages.pow(2).mean()
-        actor_loss = -(log_probs*advantages.detach()).mean()
-        loss = (self._critic_coef * critic_loss) + actor_loss*(self._entropy_coef*entropy)
-        loss.backward()
         # update optimizer
-        self.optimizer.zero_grad()
-        torch.nn.utils.clip_grad_norm(self.policy.actor.parameters(), self._clip)
-        self.optimizer.step()
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+        # actor loss
+        actor_loss = -(log_probs*advantages.detach()).mean()
+        # update optimizer
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+        # total loss
+        loss = (self._critic_coef * critic_loss) + actor_loss*(self._entropy_coef*entropy)
+        #loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self._clip)
+        #self.optimizer.step()
         wandb.log({'learn/advantages':advantages.mean().item(), 
                    'learn/value_loss':critic_loss.item(), 
                    'learn/policy_loss':actor_loss.item(), 
-                   'learn/loss':loss.item()
+                   #'learn/loss':loss.item()
                    }, 
                   commit=True,
                   )
+        # print(f'Dones: {self.rollout.dones}')
+        # print(f'Observations: {obs.squeeze()}')
+        # print(f'Values: {values.squeeze()}')
+        # print(f'Advantages: {advantages.squeeze()}')
+        # print(f'Value Loss: {critic_loss.squeeze()}')
+        # print(f'Policy Loss: {actor_loss.squeeze()}')
+        # print()
         return values.mean().item(), critic_loss.item(), actor_loss.item(), loss.item()
 
     def compute_cumulative_rewards(self):
@@ -245,7 +273,7 @@ class A2C:
             curr_rew = rewards[-1]
         else:
             dummy_var = observations[-1].view(1,1,-1)
-            for layer in self.policy.critic.values():
+            for layer in self.policy.critic:
                 dummy_var = layer(dummy_var)
             curr_rew = dummy_var.squeeze().detach()
         cuml_rewards.append(curr_rew)
@@ -272,9 +300,9 @@ class A2C:
         if not os.path.exists(path):
             os.mkdir(path)
         file_name = model_path+'_'+self.env.unwrapped.spec.id
-        torch.save({'model_state_dict': self.policy.state_dict(), 
-                    'optim_state_dict': self.optimizer.state_dict()},
-                   file_name)
+        # torch.save({'model_state_dict': self.policy.state_dict(), 
+        #             'optim_state_dict': self.optimizer.state_dict()},
+        #            file_name)
 
     def load(self,
              file_name: str = 'module_ckpts/model_a2c',
@@ -301,7 +329,9 @@ def do_n_epochs(model: ActorCriticPolicy,
 
     obs = model.env.reset()
 
-    for epi in range(int(num_episodes)):
+    epi_num = 0
+    while epi_num < num_episodes:
+        # print(f'Episode: {epi}')
         for i in range(batch_size):
             obs = torch.Tensor(obs)
             action = model.policy.act(obs)
@@ -316,8 +346,9 @@ def do_n_epochs(model: ActorCriticPolicy,
             if done:
                 obs = model.env.reset()
                 episode_rews.append(episode_rew)
-                wandb.log({'epi_rew':episode_rew, 'episode':epi}, commit=True)
+                wandb.log({'epi_rew':episode_rew, 'episode':epi_num}, commit=False)
                 episode_rew = 0
+                epi_num+=1
             else:
                 obs = next_obs
             
@@ -328,7 +359,7 @@ def do_n_epochs(model: ActorCriticPolicy,
                     'pole_ang':obs[2],
                     'pole_vel':obs[3],
                     }
-            wandb.log(info, commit=True)
+            wandb.log(info, commit=False)
 
         model.compute_cumulative_rewards()
         
@@ -339,15 +370,15 @@ def do_n_epochs(model: ActorCriticPolicy,
         if curr_step % 100 == 0:
             values.append(value)
 
-        if epi % 500 == 0:
-            # LOG Actor_loss, episode_rew, entropy, value_loss
-            print("Episode: {:5d}    Avg Epi Rew: {:6.3f}    Val Loss: {:6.3f}    Pol Loss: {:5.3f}    Avg Val: {:3.3f}".format(epi, np.mean(episode_rews[-10:]), val_loss, pol_loss, np.mean(values)))
+        # if epi_num % 100 == 0:
+        #     # LOG Actor_loss, episode_rew, entropy, value_loss
+        #     print("Episode: {:5d}    Avg Epi Rew: {:6.3f}    Val Loss: {:6.3f}    Pol Loss: {:5.3f}    Avg Val: {:3.3f}".format(epi_num, np.mean(episode_rews[-10:]), val_loss, pol_loss, np.mean(values)))
 
         model.rollout.reset()
 
-        if lr_sched:
-            model.lr_sched.step()
-            wandb.log({'lr':model.lr_sched.get_last_lr()[0]}, commit=True)
+        #if lr_sched:
+            #model.lr_sched.step()
+            #wandb.log({'lr':model.lr_sched.get_last_lr()[0]}, commit=True)
     
     plot({'episode_rewards': episode_rews, 'values': values, 'loss': loss}, curr_step)
 
@@ -426,10 +457,10 @@ def main():
     # env definition
     env_name = 'CartPole-v1'
     env = gym.make(env_name)
-    num_episodes = 5e5
+    num_episodes = 6000
     # hyper parameters
-    lr = 1e-1
-    batch_size = 3
+    lr = 1e-3
+    batch_size = 64
     hyperparameters = {
                         "lr":           lr,
                         "gamma":        0.99,
@@ -440,8 +471,8 @@ def main():
                         "clip":         0.5,
                         "batch_size":   batch_size 
                       }
-    policy_kwargs = { "network_arch": { "policy": [16], 
-                                        "value":  [16] } 
+    policy_kwargs = { "network_arch": { "policy": [64,32], 
+                                        "value":  [64,32] } 
                                         }
     # model creation
     model = A2C(env, 
