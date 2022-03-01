@@ -215,11 +215,12 @@ class A2C:
                                             )
         self.old_policy.load_state_dict(self.policy.state_dict())
         # Optimizer
-        self.actor_optimizer  = actor_optimizer  if actor_optimizer  is not None else Adam(self.policy.actor.parameters(),  lr=self._lr, eps=self._epsilon)
-        self.critic_optimizer = critic_optimizer if critic_optimizer is not None else Adam(self.policy.critic.parameters(), lr=self._lr, eps=self._epsilon)
+        self.optimizer  = actor_optimizer  if actor_optimizer  is not None else Adam(self.policy.parameters(),  lr=self._lr, eps=self._epsilon)
+        # self.actor_optimizer  = actor_optimizer  if actor_optimizer  is not None else Adam(self.policy.actor.parameters(),  lr=self._lr, eps=self._epsilon)
+        # self.critic_optimizer = critic_optimizer if critic_optimizer is not None else Adam(self.policy.critic.parameters(), lr=self._lr, eps=self._epsilon)
         # lr schedule
-        #if lr_sched:
-        #    self.lr_sched = lr_sched(self.actor_optimizer, max_lr=0.1, epochs=num_epochs, steps_per_epoch=env._max_episode_steps)
+        if lr_sched:
+           self.lr_sched = lr_sched(self.optimizer, max_lr=0.1, epochs=num_epochs, steps_per_epoch=env._max_episode_steps)
         # RolloutBuffer
         self.rollout = RolloutBuffer()
 
@@ -231,26 +232,31 @@ class A2C:
         values, log_probs, entropy = self.policy.eval(obs, acts)
         advantages = rews - values.squeeze() 
         # critic loss
+        torch.nn.utils.clip_grad_norm(self.policy.critic.parameters(), self._clip)
         critic_loss = advantages.pow(2).mean()
         # update optimizer
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
+        # self.critic_optimizer.zero_grad()
+        # critic_loss.backward()
+        # self.critic_optimizer.step()
         # actor loss
+        torch.nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self._clip)
         actor_loss = -(log_probs*advantages.detach()).mean()
         # update optimizer
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        self.actor_optimizer.step()
+        # self.actor_optimizer.zero_grad()
+        # actor_loss.backward()
+        # self.actor_optimizer.step()
         # total loss
-        loss = (self._critic_coef * critic_loss) + actor_loss*(self._entropy_coef*entropy)
-        #loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self._clip)
-        #self.optimizer.step()
+        loss = (self._critic_coef * critic_loss) + actor_loss - (self._entropy_coef*entropy)
+        #
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        #
         wandb.log({'learn/advantages':advantages.mean().item(), 
+                   'learn/entropy':entropy.item(),
                    'learn/value_loss':critic_loss.item(), 
                    'learn/policy_loss':actor_loss.item(), 
-                   #'learn/loss':loss.item()
+                   'learn/loss':loss.item()
                    }, 
                   commit=True,
                   )
@@ -376,9 +382,9 @@ def do_n_epochs(model: ActorCriticPolicy,
 
         model.rollout.reset()
 
-        #if lr_sched:
-            #model.lr_sched.step()
-            #wandb.log({'lr':model.lr_sched.get_last_lr()[0]}, commit=True)
+        if lr_sched:
+            model.lr_sched.step()
+            wandb.log({'lr':model.lr_sched.get_last_lr()[0]}, commit=True)
     
     plot({'episode_rewards': episode_rews, 'values': values, 'loss': loss}, curr_step)
 
@@ -457,7 +463,7 @@ def main():
     # env definition
     env_name = 'CartPole-v1'
     env = gym.make(env_name)
-    num_episodes = 6000
+    num_episodes = 10000
     # hyper parameters
     lr = 1e-3
     batch_size = 64
@@ -467,12 +473,12 @@ def main():
                         "lambda":       0.95,
                         "epsilon":      0.2,
                         "entropy_coef": 0.01,
-                        "critic_coef":  0.5,
+                        "critic_coef":  0.05,
                         "clip":         0.5,
                         "batch_size":   batch_size 
                       }
-    policy_kwargs = { "network_arch": { "policy": [64,32], 
-                                        "value":  [64,32] } 
+    policy_kwargs = { "network_arch": { "policy": [16,16], 
+                                        "value":  [8,8] } 
                                         }
     # model creation
     model = A2C(env, 
@@ -483,7 +489,17 @@ def main():
                 num_epochs=int(num_episodes),
                 )
     # log
-    wandb.init(project='a2c_training', name='8-nodes_batchnorm_lr-'+str(lr))
+    wandb.init(entity='elfo',
+               project='a2c_training', 
+               name='debugging_forgetting_shared_lrsched', 
+               config=hyperparameters,
+               tags=['critic grad clip, lr=1e-3, actor=16, critic=8']
+               )
+    # wandb.watch(model.policy,
+    #             log='all',
+    #             log_freq=1,
+    #             log_graph=(True),
+    #             )
     # training begin
     print("Training...")
     train(model=model,
